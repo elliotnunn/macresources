@@ -323,7 +323,8 @@ def make_rez_code(from_iter, ascii_clean=False):
     for resource in from_iter:
         args = []
         args.append(str(resource.id).encode('ascii'))
-        if resource.name: args.append(_rez_escape(resource.name.encode('mac_roman'), singlequote=False, ascii_clean=ascii_clean))
+        if resource.name is not None:
+            args.append(_rez_escape(resource.name.encode('mac_roman'), singlequote=False, ascii_clean=ascii_clean))
         args.extend(x.encode('ascii') for x in resource.attribs._for_derez())
         args = b', '.join(args)
 

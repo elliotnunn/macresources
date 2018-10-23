@@ -314,9 +314,6 @@ def make_rez_code(from_iter, ascii_clean=False):
     `ascii_clean` argument is used to get a 7-bit-only code block.
     """
 
-    from_iter = list(from_iter)
-    from_iter.sort(key=lambda res: res.type)
-
     if ascii_clean:
         themap = CLEANMAP
     else:

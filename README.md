@@ -1,1 +1,1 @@
-`resourcefork` readme
+`macresources` readme

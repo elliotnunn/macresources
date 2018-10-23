@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
-import resourcefork
+import macresources
 
 parser = argparse.ArgumentParser(description='''
     Compile legacy Mac resources from a subset of the Rez language. Only
@@ -20,7 +20,7 @@ args = parser.parse_args()
 resources = []
 for in_path in args.rezFile:
     with open(in_path, 'rb') as f:
-        resources.extend(resourcefork.parse_rez_code(f.read()))
+        resources.extend(macresources.parse_rez_code(f.read()))
 
 with open(args.o, 'wb') as f:
-    f.write(resourcefork.make_file(resources))
+    f.write(macresources.make_file(resources))

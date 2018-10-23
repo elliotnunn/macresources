@@ -333,14 +333,28 @@ def make_rez_code(from_iter, ascii_clean=False):
         lines.append(b'data %s (%s) {' % (fourcc, args))
 
         step = 16
+
+        star, slash, dot, space = b'*/. '
+        whole_preview = bytearray(resource.data)
+        for i in range(len(whole_preview)):
+            if not i % step: mode = False
+            thisone = whole_preview[i]
+            if mode and thisone == slash:
+                thisone = dot
+                mode = False
+            elif thisone == star:
+                mode = True
+            elif thisone >= space:
+                mode = False
+            whole_preview[i] = themap[thisone]
+
         for ofs in range(0, len(resource.data), step):
             linedat = resource.data[ofs:ofs+step]
             line = ' '.join(linedat[i:i+2].hex() for i in range(0, len(linedat), 2)).encode('ascii')
             line = line.upper()
             line = b'\t$"%s"' % line
-            prevstr = bytes(themap[ch] for ch in linedat).replace(b'*/', b'*.')
             line = line.ljust(55)
-            line += b'/* %s */' % prevstr
+            line += b'/* %s */' % whole_preview[ofs:ofs+step]
             lines.append(line)
 
         lines.append(b'};')

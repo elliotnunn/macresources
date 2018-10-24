@@ -228,7 +228,7 @@ def parse_rez_code(from_rezcode):
         pass
 
 
-def make_file(from_iter):
+def make_file(from_iter, align=1):
     """Pack an iterator of Resource objects into a binary resource file."""
 
     class wrap:
@@ -241,6 +241,9 @@ def make_file(from_iter):
     bigdict = collections.OrderedDict() # maintain order of types, but manually order IDs
     for r in from_iter:
         wrapped = wrap(r)
+
+        while len(accum) % align:
+            accum.extend(b'\x00')
 
         wrapped.data_offset = len(accum)
         accum.extend(struct.pack('>L', len(r.data)))

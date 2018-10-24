@@ -3,6 +3,24 @@
 import argparse
 import macresources
 
+def parse_align(x):
+    msg = "%r is not 'word', 'longword' or whole number" % x
+
+    if x.lower() == 'word':
+        return 2
+    elif x.lower() == 'longword':
+        return 4
+
+    try:
+        y = int(x)
+    except ValueError:
+        raise argparse.ArgumentTypeError(msg)
+
+    if y < 1:
+        raise argparse.ArgumentTypeError(msg)
+
+    return y
+
 parser = argparse.ArgumentParser(description='''
     Compile legacy Mac resources from a subset of the Rez language. Only
     data blocks and $"<hex>" lines are supported. No attempt is made to
@@ -13,6 +31,7 @@ parser = argparse.ArgumentParser(description='''
 
 parser.add_argument('rezFile', nargs='+', help='resource description files')
 parser.add_argument('-o', metavar='outputFile', default='Rez.out', help='default: Rez.out')
+parser.add_argument('-align', metavar='word | longword | n', action='store', type=parse_align, default=1)
 parser.add_argument('-useDF', action='store_true', help='ignored: data fork is always used')
 
 args = parser.parse_args()
@@ -23,4 +42,4 @@ for in_path in args.rezFile:
         resources.extend(macresources.parse_rez_code(f.read()))
 
 with open(args.o, 'wb') as f:
-    f.write(macresources.make_file(resources))
+    f.write(macresources.make_file(resources, align=args.align))

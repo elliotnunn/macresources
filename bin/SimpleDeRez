@@ -15,13 +15,14 @@ parser = argparse.ArgumentParser(description='''
 parser.add_argument('resourceFile', help='file to be decompiled')
 parser.add_argument('-ascii', action='store_true', help='guarantee ASCII output')
 parser.add_argument('-useDF', action='store_true', help='ignored: data fork is always used')
+parser.add_argument('-fakehdr', action='store_true', help='output header as fake resource')
 
 args = parser.parse_args()
 
 with open(args.resourceFile, 'rb') as f:
-    resources = macresources.parse_file(f.read())
+    resources = macresources.parse_file(f.read(), fake_header_rsrc=args.fakehdr)
 
 try:
-	sys.stdout.buffer.write(macresources.make_rez_code(resources, ascii_clean=args.ascii))
+	sys.stdout.buffer.write(macresources.make_rez_code(resources, ascii_clean=args.ascii, fake_header_rsrc=args.fakehdr))
 except BrokenPipeError:
 	pass # like we get when we pipe into head

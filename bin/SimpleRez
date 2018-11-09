@@ -33,13 +33,14 @@ parser.add_argument('rezFile', nargs='+', help='resource description files')
 parser.add_argument('-o', metavar='outputFile', default='Rez.out', help='default: Rez.out')
 parser.add_argument('-align', metavar='word | longword | n', action='store', type=parse_align, default=1)
 parser.add_argument('-useDF', action='store_true', help='ignored: data fork is always used')
+parser.add_argument('-fakehdr', action='store_true', help='accept fake-header resource')
 
 args = parser.parse_args()
 
 resources = []
 for in_path in args.rezFile:
     with open(in_path, 'rb') as f:
-        resources.extend(macresources.parse_rez_code(f.read()))
+        resources.extend(macresources.parse_rez_code(f.read(), fake_header_rsrc=args.fakehdr))
 
 with open(args.o, 'wb') as f:
-    f.write(macresources.make_file(resources, align=args.align))
+    f.write(macresources.make_file(resources, align=args.align, fake_header_rsrc=args.fakehdr))

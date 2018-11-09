@@ -3,6 +3,9 @@ import struct
 import enum
 
 
+FAKE_HEADER_RSRC_NAME = 'Header as fake resource (not for Rez)'
+
+
 MAP = bytearray(range(256))
 for i in range(32): MAP[i] = ord('.')
 MAP[127] = ord('.')
@@ -123,11 +126,14 @@ class Resource:
         return '%s(type=%r, id=%r, name=%r, attribs=%r, data=%s)' % (self.__class__.__name__, self.type, self.id, self.name, self.attribs, datarep)
 
 
-def parse_file(from_resfile):
+def parse_file(from_resfile, fake_header_rsrc=False):
     """Get an iterator of Resource objects from a binary resource file."""
 
     if not from_resfile: # empty resource forks are fine
         return
+
+    if fake_header_rsrc and any(from_resfile[16:256]):
+        yield Resource(type=b'????', id=0, name=FAKE_HEADER_RSRC_NAME, data=from_resfile[16:256])
 
     data_offset, map_offset, data_len, map_len = struct.unpack_from('>4L', from_resfile)
 
@@ -166,7 +172,7 @@ def parse_file(from_resfile):
             yield Resource(type=rtype, id=rid, name=name, attribs=rattribs, data=bytearray(rdata))
 
 
-def parse_rez_code(from_rezcode):
+def parse_rez_code(from_rezcode, fake_header_rsrc=False):
     """Get an iterator of Resource objects from code in a subset of the Rez language (bytes or str)."""
 
     try:
@@ -228,7 +234,7 @@ def parse_rez_code(from_rezcode):
         pass
 
 
-def make_file(from_iter, align=1):
+def make_file(from_iter, align=1, fake_header_rsrc=False):
     """Pack an iterator of Resource objects into a binary resource file."""
 
     class wrap:
@@ -240,6 +246,12 @@ def make_file(from_iter, align=1):
     data_offset = len(accum)
     bigdict = collections.OrderedDict() # maintain order of types, but manually order IDs
     for r in from_iter:
+        if fake_header_rsrc and r.name == FAKE_HEADER_RSRC_NAME:
+            if len(r.data) > 256-16:
+                raise ValueError('Special resource length (%r) too long' % len(r.data))
+            accum[16:16+len(r.data)] = r.data
+            continue
+
         wrapped = wrap(r)
 
         while len(accum) % align:
@@ -310,7 +322,7 @@ def make_file(from_iter, align=1):
     return bytes(accum)
 
 
-def make_rez_code(from_iter, ascii_clean=False):
+def make_rez_code(from_iter, ascii_clean=False, fake_header_rsrc=False):
     """Express an iterator of Resource objects as Rez code (bytes).
 
     This will match the output of the deprecated Rez utility, unless the
@@ -333,6 +345,8 @@ def make_rez_code(from_iter, ascii_clean=False):
 
         fourcc = _rez_escape(resource.type, singlequote=True, ascii_clean=ascii_clean)
 
+        if fake_header_rsrc and resource.name == FAKE_HEADER_RSRC_NAME:
+            lines.append(b'#if 0')
         lines.append(b'data %s (%s) {' % (fourcc, args))
 
         step = 16
@@ -361,6 +375,8 @@ def make_rez_code(from_iter, ascii_clean=False):
             lines.append(line)
 
         lines.append(b'};')
+        if fake_header_rsrc and resource.name == FAKE_HEADER_RSRC_NAME:
+            lines.append(b'#endif')
         lines.append(b'')
     if lines: lines.append(b'') # hack, because all posix lines end with a newline
 

@@ -91,10 +91,13 @@ class ResourceAttrs(enum.IntFlag):
     _changed = 0x02 # marks a resource that has been changes since loading from file (should not be seen on disk)
     _compressed = 0x01 # "indicates that the resource data is compressed" (only documented in https://github.com/kreativekorp/ksfl/wiki/Macintosh-Resource-File-Format)
 
-    def _for_derez(self):
-        for possible in self.__class__:
-            if not possible.name.startswith('_') and self & possible:
-                yield possible.name
+    def _for_derez(self, cmt_unsupported=True):
+        mylist = [p.name for p in self.__class__ if self & p]
+        if any(p.startswith('_') for p in mylist):
+            arg = '$%02X' % self
+            if cmt_unsupported: arg += ' /*%s*/' % ', '.join(mylist)
+            mylist = [arg]
+        return mylist
 
 
 class Resource:
@@ -184,6 +187,12 @@ def parse_rez_code(from_rezcode, fake_header_rsrc=False):
 
     for line in from_rezcode.split(b'\n'):
         line = line.lstrip()
+
+        while b'/*' in line:
+            a, b, c = line.partition(b'/*')
+            d, e, f = c.partition(b'*/')
+            line = a + f
+
         if line.startswith(b'data '):
             try:
                 yield cur_resource
@@ -219,7 +228,13 @@ def parse_rez_code(from_rezcode, fake_header_rsrc=False):
                     if argtype == 'string':
                         rsrcname = arg.decode('mac_roman')
                     else:
-                        rsrcattrs |= getattr(ResourceAttrs, arg.decode('ascii'))
+                        if arg.startswith(b'$'):
+                            newattr = int(arg[1:], 16)
+                        elif arg and arg[0] in b'0123456789':
+                            newattr = int(arg)
+                        else:
+                            newattr = getattr(ResourceAttrs, arg.decode('ascii'))
+                        rsrcattrs |= newattr
 
             cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs)
 
@@ -322,7 +337,7 @@ def make_file(from_iter, align=1, fake_header_rsrc=False):
     return bytes(accum)
 
 
-def make_rez_code(from_iter, ascii_clean=False, fake_header_rsrc=False):
+def make_rez_code(from_iter, ascii_clean=False, fake_header_rsrc=False, cmt_unsupported_attrib=False):
     """Express an iterator of Resource objects as Rez code (bytes).
 
     This will match the output of the deprecated Rez utility, unless the
@@ -340,7 +355,7 @@ def make_rez_code(from_iter, ascii_clean=False, fake_header_rsrc=False):
         args.append(str(resource.id).encode('ascii'))
         if resource.name is not None:
             args.append(_rez_escape(resource.name.encode('mac_roman'), singlequote=False, ascii_clean=ascii_clean))
-        args.extend(x.encode('ascii') for x in resource.attribs._for_derez())
+        args.extend(x.encode('ascii') for x in resource.attribs._for_derez(cmt_unsupported=cmt_unsupported_attrib))
         args = b', '.join(args)
 
         fourcc = _rez_escape(resource.type, singlequote=True, ascii_clean=ascii_clean)

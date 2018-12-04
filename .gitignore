@@ -1,0 +1,11 @@
+# Files to be ignored by Git.
+
+.git
+
+# Python auto-generated files and folders.
+/__pycache__
+Dump
+
+# System files.
+.DS_Store
+Thumb.db

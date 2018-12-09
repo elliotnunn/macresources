@@ -27,7 +27,7 @@ def _rez_escape(src, singlequote=False, ascii_clean=False):
     chars = [the_quote]
     for ch in src:
         if 8 <= ch <= 13:
-            nu = b'\\' + b'btrvfn'[ch:ch+1]
+            nu = b'\\' + b'btrvfn'[ch-8:][:1]
         elif ch < 32 or (ascii_clean and ch >= 128):
             nu = b'\\0x%02X' % ch
         elif ch == ord('\\'):

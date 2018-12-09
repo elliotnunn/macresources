@@ -5,18 +5,18 @@ import macresources
 import sys
 
 parser = argparse.ArgumentParser(description='''
-    Decompile legacy Mac resources to the Rez language. Unless the
-    `-ascii' flag is used, the output will match Apple's deprecated
+    Decompile legacy Mac resources to the Rez language. Unless an option
+    marked below with [!] is used, the output will match Apple's deprecated
     DeRez utility. No attempt is made to access the native Mac resource
     fork, but this can be worked around by appending `/..namedfork/rsrc'
     to the name of the input file.
 ''')
 
 parser.add_argument('resourceFile', help='file to be decompiled')
-parser.add_argument('-ascii', action='store_true', help='guarantee ASCII output')
+parser.add_argument('-ascii', action='store_true', help='[!] guarantee ASCII output')
+parser.add_argument('-fakehdr', action='store_true', help='[!] save 225b file header as fake resource')
+parser.add_argument('-compcmt', action='store_true', help='[!] helpfully comment compressed resources')
 parser.add_argument('-useDF', action='store_true', help='ignored: data fork is always used')
-parser.add_argument('-fakehdr', action='store_true', help='save 225b file header as fake resource')
-parser.add_argument('-compcmt', action='store_true', help='helpfully comment compressed resources')
 
 args = parser.parse_args()
 

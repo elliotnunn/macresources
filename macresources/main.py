@@ -1,6 +1,7 @@
 import collections
 import struct
 import enum
+from FakeResDecompress import DecompressResource, CompressResource
 
 
 FAKE_HEADER_RSRC_TYPE = b'header' # obviously invalid

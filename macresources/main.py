@@ -129,6 +129,7 @@ class Resource:
         self.attribs |= attribs
         self.data = data
         self.compression_format = None
+        self.expand_err_ok = False
 
         # Maintain a hidden cache of the compressed System 7 data that got loaded
         self._cache = None
@@ -146,8 +147,8 @@ class Resource:
 
     def __getattr__(self, attrname): # fear not, this is only for evil System 7 resource compression
         if attrname == 'data':
-            if GetEncoding(self._cache) == 'UnknownCompression':
-                print('Warning: accessing %r %r, which is compressed in an unknown format' % (self.type, self.id))
+            if GetEncoding(self._cache) == 'UnknownCompression' and not self.expand_err_ok:
+                raise ResExpandError('Tried to expand unknown format (%r %r) without setting expand_err_ok' % (self.type, self.id))
 
             self.data = DecompressResource(self._cache)
             self._cache_hash = hash_mutable(self.data)
@@ -170,13 +171,15 @@ class Resource:
             self._cache = CompressResource(self.data, self.compression_format)
             self._cache_hash = hash_mutable(self.data)
 
-    def _rez_repr(self, expand=False):
-        # decide now: what raw data will we slap down?
+    def _rez_repr(self, expand=False): # the Rez file will be annotated for re-compression
         if self.compression_format:
             if expand:
-                if self.compression_format == 'UnknownCompression':
+                if self.compression_format == 'UnknownCompression': # means I can have no data attribute
                     attribs = ResourceAttrs(self.attribs | 1) # at lease Rez will produce the right file
-                    data = self.data # will throw a warning
+                    if 'data' in self.__dict__:
+                        data = self.data
+                    else:
+                        data = self._cache
                     compression_format = None # no comment
                 else:
                     attribs = ResourceAttrs(self.attribs & ~1)
@@ -205,6 +208,9 @@ class Resource:
 
         return data, attribs
 
+
+class ResExpandError(Exception):
+    pass
 
 def parse_file(from_resfile, fake_header_rsrc=False):
     """Get an iterator of Resource objects from a binary resource file."""

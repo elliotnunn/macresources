@@ -15,11 +15,12 @@ def GetEncoding(inf):
 
 def DecompressResource(inf):
 	# print('DecompressResource', GetEncoding(inf))
-	GetEncoding(inf) # this will need to be called, of course
+	if GetEncoding(inf) == 'UnknownCompression': return inf
 	return b'decompressed    ' + inf
 
 
 def CompressResource(inf, encoding):
 	# print('CompressResource', encoding)
+	if encoding == 'UnknownCompression': return inf
 	if inf.startswith(b'decompressed    '): inf = inf[16:]
 	return inf

@@ -170,10 +170,10 @@ class Resource:
             self._cache = CompressResource(self.data, self.compression_format)
             self._cache_hash = hash_mutable(self.data)
 
-    def _rez_repr(self, extract=False):
+    def _rez_repr(self, expand=False):
         # decide now: what raw data will we slap down?
         if self.compression_format:
-            if extract:
+            if expand:
                 if self.compression_format == 'UnknownCompression':
                     attribs = ResourceAttrs(self.attribs | 1) # at lease Rez will produce the right file
                     data = self.data # will throw a warning
@@ -415,7 +415,7 @@ def make_file(from_iter, align=1):
     return bytes(accum)
 
 
-def make_rez_code(from_iter, ascii_clean=False, extract=False):
+def make_rez_code(from_iter, ascii_clean=False, expand=False):
     """Express an iterator of Resource objects as Rez code (bytes).
 
     This will match the output of the deprecated Rez utility, unless the
@@ -429,7 +429,7 @@ def make_rez_code(from_iter, ascii_clean=False, extract=False):
 
     lines = []
     for resource in from_iter:
-        data, attribs, compression_format = resource._rez_repr(extract=extract)
+        data, attribs, compression_format = resource._rez_repr(expand=expand)
 
         args = []
         args.append(str(resource.id).encode('ascii'))

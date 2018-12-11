@@ -168,10 +168,10 @@ class Resource:
             self._cache = CompressResource(self.data, self.compression_format)
             self._cache_hash = hash_mutable(self.data)
 
-    def _rez_repr(self, compression_savvy=False):
+    def _rez_repr(self, extract=False):
         # decide now: what raw data will we slap down?
         if self.compression_format:
-            if compression_savvy:
+            if extract:
                 attribs = self.attribs - ResourceAttrs._compressed # will this work??
                 data = self.data
                 compression_cmt = self.compression_format
@@ -407,7 +407,7 @@ def make_file(from_iter, align=1):
     return bytes(accum)
 
 
-def make_rez_code(from_iter, ascii_clean=False, cmt_unsupported_attrib=False):
+def make_rez_code(from_iter, ascii_clean=False, extract=False):
     """Express an iterator of Resource objects as Rez code (bytes).
 
     This will match the output of the deprecated Rez utility, unless the
@@ -421,14 +421,18 @@ def make_rez_code(from_iter, ascii_clean=False, cmt_unsupported_attrib=False):
 
     lines = []
     for resource in from_iter:
+        data, attribs, compression_cmt = resource._rez_repr(extract=extract)
+
         args = []
         args.append(str(resource.id).encode('ascii'))
         if resource.name is not None:
             args.append(_rez_escape(resource.name.encode('mac_roman'), singlequote=False, ascii_clean=ascii_clean))
-        args.extend(x.encode('ascii') for x in resource.attribs._for_derez(cmt_unsupported=cmt_unsupported_attrib))
+        args.extend(x.encode('ascii') for x in attribs._for_derez())
         args = b', '.join(args)
 
         fourcc = _rez_escape(resource.type, singlequote=True, ascii_clean=ascii_clean)
+
+        if compression_cmt: lines.append(b'/* Compression: %s */' % compression_cmt.encode('mac_roman'))
 
         if resource.type == FAKE_HEADER_RSRC_TYPE:
             lines.append(b'#if 0')
@@ -437,7 +441,7 @@ def make_rez_code(from_iter, ascii_clean=False, cmt_unsupported_attrib=False):
         step = 16
 
         star, slash, dot, space = b'*/. '
-        whole_preview = bytearray(resource.data)
+        whole_preview = bytearray(data)
         for i in range(len(whole_preview)):
             if not i % step: mode = False
             thisone = whole_preview[i]

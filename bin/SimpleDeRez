@@ -5,9 +5,10 @@ import macresources
 import sys
 
 parser = argparse.ArgumentParser(description='''
-    Decompile legacy Mac resources to the Rez language. Unless an option
-    marked below with [!] is used, the output will match Apple's deprecated
-    DeRez utility. No attempt is made to access the native Mac resource
+    Decompile legacy Mac resources to the Rez language. The output will
+    always be compatible with Apple Rez, and unless an option
+    marked below with [!] is used, the output will match Apple DeRez.
+    No attempt is made to access the native Mac resource
     fork, but this can be worked around by appending `/..namedfork/rsrc'
     to the name of the input file.
 ''')

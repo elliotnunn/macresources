@@ -5,7 +5,7 @@
 import struct
 import sys
 
-from GreggDecompress import GreggDecompress, GreggCompress
+from GreggBits import GreggDecompress, GreggCompress
 
 
 def DecompressResource(inf):

@@ -1,7 +1,7 @@
 import collections
 import struct
 import enum
-from FakeResDecompress import DecompressResource, CompressResource
+from .FakeResDecompress import DecompressResource, CompressResource, GetEncoding
 
 
 FAKE_HEADER_RSRC_TYPE = b'header' # obviously invalid
@@ -99,12 +99,10 @@ class ResourceAttrs(enum.IntFlag):
     _changed = 0x02 # marks a resource that has been changes since loading from file (should not be seen on disk)
     _compressed = 0x01 # "indicates that the resource data is compressed" (only documented in https://github.com/kreativekorp/ksfl/wiki/Macintosh-Resource-File-Format)
 
-    def _for_derez(self, cmt_unsupported=True):
+    def _for_derez(self, strict=True):
         mylist = [p.name for p in self.__class__ if self & p]
-        if any(p.startswith('_') for p in mylist):
-            arg = '$%02X' % self
-            if cmt_unsupported: arg += ' /*%s*/' % ', '.join(mylist)
-            mylist = [arg]
+        if strict and any(p.startswith('_') for p in mylist):
+            mylist = ['$%02X' % self]
         return mylist
 
 
@@ -136,6 +134,7 @@ class Resource:
         self._cache = None
         self._cache_hash = None
         if self.attribs & ResourceAttrs._compressed: # may need to fudge this attribute??
+            self.attribs = ResourceAttrs(self.attribs & ~1)
             self.compression_format = GetEncoding(data)
             del self.data # so that we can defer decompressing the data, see __getattr__
             self._cache = data
@@ -147,6 +146,9 @@ class Resource:
 
     def __getattr__(self, attrname): # fear not, this is only for evil System 7 resource compression
         if attrname == 'data':
+            if GetEncoding(self._cache) == 'UnknownCompression':
+                print('Warning: accessing %r %r, which is compressed in an unknown format' % (self.type, self.id))
+
             self.data = DecompressResource(self._cache)
             self._cache_hash = hash_mutable(self.data)
             return self.data
@@ -172,28 +174,33 @@ class Resource:
         # decide now: what raw data will we slap down?
         if self.compression_format:
             if extract:
-                attribs = self.attribs - ResourceAttrs._compressed # will this work??
-                data = self.data
-                compression_cmt = self.compression_format
+                if self.compression_format == 'UnknownCompression':
+                    attribs = ResourceAttrs(self.attribs | 1) # at lease Rez will produce the right file
+                    data = self.data # will throw a warning
+                    compression_format = None # no comment
+                else:
+                    attribs = ResourceAttrs(self.attribs & ~1)
+                    data = self.data
+                    compression_format = self.compression_format
             else:
-                attribs = self.attribs | ResourceAttrs._compressed
+                attribs = ResourceAttrs(self.attribs | 1)
                 self._update_cache() # ensures that self._cache is valid
                 data = self._cache
-                compression_cmt = None
+                compression_format = None
         else:
-            attribs = self.attribs - ResourceAttrs._compressed
+            attribs = ResourceAttrs(self.attribs & ~1)
             data = self.data
-            compression_cmt = None
+            compression_format = None
 
-        return data, attribs, compression_cmt
+        return data, attribs, compression_format
 
     def _file_repr(self):
         if self.compression_format:
-            attribs = self.attribs | ResourceAttrs._compressed
+            attribs = ResourceAttrs(self.attribs | 1)
             self._update_cache() # ensures that self._cache is valid
             data = self._cache
         else:
-            attribs = self.attribs - ResourceAttrs._compressed
+            attribs = ResourceAttrs(self.attribs & ~1)
             data = self.data
 
         return data, attribs
@@ -257,12 +264,6 @@ def parse_rez_code(from_rezcode):
 
     for line in from_rezcode.split(b'\n'):
         line = line.lstrip()
-
-        while b'/*' in line:
-            a, b, c = line.partition(b'/*')
-            d, e, f = c.partition(b'*/')
-            line = a + f
-
         if line.startswith(b'data '):
             try:
                 yield cur_resource
@@ -287,6 +288,12 @@ def parse_rez_code(from_rezcode):
                         line = line[1:]
                     args.append(('nonstring', arg))
 
+            compression_format = None
+            line = line[1:].lstrip() # clip off the closing paren
+            if line.startswith(b'/* Compress: '):
+                line = line[13:]
+                compression_format = line.split()[0].decode('ascii')
+
             rsrcname = None
             rsrcattrs = ResourceAttrs(0)
 
@@ -307,6 +314,7 @@ def parse_rez_code(from_rezcode):
                         rsrcattrs |= newattr
 
             cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs)
+            cur_resource.compression_format = compression_format
 
         elif line.startswith(b'$"'):
             hexdat = line[2:].partition(b'"')[0]
@@ -338,13 +346,14 @@ def make_file(from_iter, align=1):
             continue
 
         wrapped = wrap(r)
+        data, wrapped.attribs = r._file_repr()
 
         while len(accum) % align:
             accum.extend(b'\x00')
 
         wrapped.data_offset = len(accum)
-        accum.extend(struct.pack('>L', len(r.data)))
-        accum.extend(r.data)
+        accum.extend(struct.pack('>L', len(data)))
+        accum.extend(data)
 
         if r.type not in bigdict:
             bigdict[r.type] = []
@@ -378,9 +387,8 @@ def make_file(from_iter, align=1):
                 this_name_offset = 0xFFFF
             else:
                 this_name_offset = res.name_offset - namelist_offset
-            attribs = int(res.obj.attribs)
             this_data_offset = res.data_offset - data_offset
-            mixedfield = (attribs << 24) | this_data_offset
+            mixedfield = (int(attribs) << 24) | this_data_offset
             struct.pack_into('>hHL', accum, counter, res.obj.id, this_name_offset, mixedfield)
 
             counter += 12
@@ -421,7 +429,7 @@ def make_rez_code(from_iter, ascii_clean=False, extract=False):
 
     lines = []
     for resource in from_iter:
-        data, attribs, compression_cmt = resource._rez_repr(extract=extract)
+        data, attribs, compression_format = resource._rez_repr(extract=extract)
 
         args = []
         args.append(str(resource.id).encode('ascii'))
@@ -432,11 +440,10 @@ def make_rez_code(from_iter, ascii_clean=False, extract=False):
 
         fourcc = _rez_escape(resource.type, singlequote=True, ascii_clean=ascii_clean)
 
-        if compression_cmt: lines.append(b'/* Compression: %s */' % compression_cmt.encode('mac_roman'))
-
         if resource.type == FAKE_HEADER_RSRC_TYPE:
             lines.append(b'#if 0')
         lines.append(b'data %s (%s) {' % (fourcc, args))
+        if compression_format: lines[-1] += b' /* Compress: %s */' % compression_format.encode('mac_roman')
 
         step = 16
 
@@ -454,8 +461,8 @@ def make_rez_code(from_iter, ascii_clean=False, extract=False):
                 mode = False
             whole_preview[i] = themap[thisone]
 
-        for ofs in range(0, len(resource.data), step):
-            linedat = resource.data[ofs:ofs+step]
+        for ofs in range(0, len(data), step):
+            linedat = data[ofs:ofs+step]
             line = ' '.join(linedat[i:i+2].hex() for i in range(0, len(linedat), 2)).encode('ascii')
             line = line.upper()
             line = b'\t$"%s"' % line

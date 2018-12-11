@@ -25,6 +25,7 @@ with open(args.resourceFile, 'rb') as f:
     resources = macresources.parse_file(f.read(), fake_header_rsrc=args.fakehdr)
 
 try:
+	rez = macresources.make_rez_code(resources, ascii_clean=args.ascii, extract=args.extract)
 	sys.stdout.buffer.write(rez)
 except BrokenPipeError:
 	pass # like we get when we pipe into head

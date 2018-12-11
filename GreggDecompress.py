@@ -42,6 +42,29 @@ GreggDefLUT = (
 )
 
 
+def EncodeMaskedWords(src, dst, pos, n, tab):
+    mask = 0
+    encoded = bytearray()
+
+    for rPos in range(n):
+        mask <<= 1
+        word = src[pos+rPos]
+        compressed = 1 if word in tab else 0
+        mask |= compressed
+        if compressed: # replace word with table index
+            encoded.append(tab.index(word))
+        else: # otherwise, just copy unencoded data over
+            encoded.extend(word.to_bytes(2, 'big'))
+
+    if n < 8: # left-justify the mask for n < 8
+        mask <<= 8 - n
+
+    dst.append(mask)
+    dst.extend(encoded)
+
+    return pos+n
+
+
 def DecodeMaskedWords(src, dst, pos, n, tab, mask):
     '''Decode n words using the specified lookup table under control of mask.
        Return new bitstream position.
@@ -124,3 +147,67 @@ def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
         pos += 1
 
     #print("Last input position: %d" % pos)
+
+
+def GreggCompress(src, dst, unpackSize, customTab=False, isBitmapped=False):
+    if customTab:
+        # convert input bytes into an array of words
+        nWords = unpackSize >> 1
+        inWords = struct.unpack(">" + str(nWords) + "H", src[:nWords*2])
+
+        # count occurence of each word
+        from collections import Counter
+        wordsCounts = Counter(inWords)
+
+        # grab word counts in descending order (most frequent comes first)
+        sortedCounts = list(set(wordsCounts.values()))
+        sortedCounts.sort(reverse=True)
+
+        # now we're ready to construct a table of 256 most common words
+        embeddedTab = list()
+        nElems = 0
+
+        for cnt in sortedCounts:
+            # pick all words for a specific count and sort them in descending order
+            words = [key for (key, value) in wordsCounts.items() if value == cnt]
+            words.sort(reverse=True)
+
+            # append them to the table, stop when tableMax is reached
+            if nElems + len(words) < 256:
+                embeddedTab.extend(words)
+                nElems += len(words)
+            else:
+                remainedElems = 256 - nElems
+                embeddedTab.extend(words[:remainedElems])
+                nElems += remainedElems
+
+            if nElems >= 256:
+                break
+
+        if 0: # dump the resulting table
+            for idx, elem in enumerate(embeddedTab):
+                if idx and not idx & 3:
+                    print(",")
+                else:
+                    print(", ", end="")
+                print("0x%04X" % elem, end="")
+            print("")
+
+        # write the constructed table into output
+        for word in embeddedTab:
+            dst.extend(word.to_bytes(2, 'big'))
+
+    if isBitmapped:
+        pos = 0
+        nRuns = nWords >> 3
+
+        for idx in range(nRuns):
+            pos = EncodeMaskedWords(inWords, dst, pos, 8, embeddedTab)
+
+        if nWords & 7:
+            pos = EncodeMaskedWords(inWords, dst, pos, nWords & 7, embeddedTab)
+
+        if unpackSize & 1: # copy over last byte in the case of odd length
+            dst.append(src[-1])
+    else:
+        print("Non-bitmapped compression not yet implemented")

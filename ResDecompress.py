@@ -5,7 +5,7 @@
 import struct
 import sys
 
-from GreggDecompress import GreggDecompress
+from GreggDecompress import GreggDecompress, GreggCompress
 
 
 def DecompressResource(inf):
@@ -41,6 +41,21 @@ def DecompressResource(inf):
 
     with open("Dump", 'wb') as outstream:
         outstream.write(dstBuf)
+
+    # re-compress
+    recompBuf = bytearray()
+
+    # re-create extended resource header
+    recompBuf.extend([0xA8, 0x9F, 0x65, 0x72, 0x00, 0x12, 0x09, 0x01])
+    recompBuf.extend(hdrFields[4].to_bytes(4, 'big'))
+    recompBuf.extend([0x00, 0x02, 0x00, 0x00])
+    recompBuf.append(GreggSpecific[2])
+    recompBuf.append(GreggSpecific[3])
+
+    GreggCompress(dstBuf, recompBuf, hdrFields[4], customTab=True, isBitmapped=True)
+
+    with open("RecompDump", 'wb') as outstream:
+        outstream.write(recompBuf)
 
 
 if __name__ == "__main__":

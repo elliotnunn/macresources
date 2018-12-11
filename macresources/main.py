@@ -174,17 +174,14 @@ class Resource:
     def _rez_repr(self, expand=False): # the Rez file will be annotated for re-compression
         if self.compression_format:
             if expand:
-                if self.compression_format == 'UnknownCompression': # means I can have no data attribute
-                    attribs = ResourceAttrs(self.attribs | 1) # at lease Rez will produce the right file
-                    if 'data' in self.__dict__:
-                        data = self.data
-                    else:
-                        data = self._cache
-                    compression_format = None # no comment
-                else:
-                    attribs = ResourceAttrs(self.attribs & ~1)
-                    data = self.data
-                    compression_format = self.compression_format
+                attribs = ResourceAttrs(self.attribs & ~1)
+                if self.compression_format == 'UnknownCompression':
+                    attribs = ResourceAttrs(self.attribs | 1) # so Rez will produce a valid file
+                try:
+                    data = self.data # prefer clean data from user
+                except ResExpandError:
+                    data = self._cache # sad fallback on original compressed data
+                compression_format = self.compression_format
             else:
                 attribs = ResourceAttrs(self.attribs | 1)
                 self._update_cache() # ensures that self._cache is valid
@@ -449,7 +446,9 @@ def make_rez_code(from_iter, ascii_clean=False, expand=False):
         if resource.type == FAKE_HEADER_RSRC_TYPE:
             lines.append(b'#if 0')
         lines.append(b'data %s (%s) {' % (fourcc, args))
-        if compression_format: lines[-1] += b' /* Compress: %s */' % compression_format.encode('mac_roman')
+        if compression_format:
+            cmt = ('Compress: ' + compression_format).replace('Compress: UnknownCompression', 'Unknown compression format')
+            lines[-1] += b' /* %s */' % cmt.encode('mac_roman')
 
         step = 16
 

@@ -80,6 +80,13 @@ def _rez_unescape(src):
     return chars, src # return leftover in tuple
 
 
+def hash_mutable(data):
+    try:
+        return hash(data)
+    except TypeError:
+        return hash(bytes(data))
+
+
 class ResourceAttrs(enum.IntFlag):
     """Resource attibutes byte."""
     
@@ -119,15 +126,77 @@ class Resource:
     def __init__(self, type, id, name=None, attribs=0, data=None):
         self.type = type
         self.id = id
-        self.data = data or bytearray()
         self.name = name
         self.attribs = ResourceAttrs(0)
         self.attribs |= attribs
+        self.data = data
+        self.compression_format = None
+
+        # Maintain a hidden cache of the compressed System 7 data that got loaded
+        self._cache = None
+        self._cache_hash = None
+        if self.attribs & ResourceAttrs._compressed: # may need to fudge this attribute??
+            self.compression_format = GetEncoding(data)
+            del self.data # so that we can defer decompressing the data, see __getattr__
+            self._cache = data
 
     def __repr__(self):
         datarep = repr(bytes(self.data[:4]))
         if len(self.data) > len(datarep): datarep += '...%sb' % len(self.data)
         return '%s(type=%r, id=%r, name=%r, attribs=%r, data=%s)' % (self.__class__.__name__, self.type, self.id, self.name, self.attribs, datarep)
+
+    def __getattr__(self, attrname): # fear not, this is only for evil System 7 resource compression
+        if attrname == 'data':
+            self.data = DecompressResource(self._cache)
+            self._cache_hash = hash_mutable(self.data)
+            return self.data
+
+        raise AttributeError
+
+    def _cache_check(self): # false means dirty
+        if 'data' not in self.__dict__: return True # self._cache is the only representation
+        if self._cache is None: return False # self.data is the only representation
+
+        # Both self._cache and self.data exist, so we compare them...
+        if GetEncoding(self._cache) != self.compression_format: return False
+        if self._cache_hash != hash_mutable(self.data): return False
+
+        return True # ... and find that they match according to 
+
+    def _update_cache(self): # assume we should compress, not that we already have!
+        if not self._cache_check():
+            self._cache = CompressResource(self.data, self.compression_format)
+            self._cache_hash = hash_mutable(self.data)
+
+    def _rez_repr(self, compression_savvy=False):
+        # decide now: what raw data will we slap down?
+        if self.compression_format:
+            if compression_savvy:
+                attribs = self.attribs - ResourceAttrs._compressed # will this work??
+                data = self.data
+                compression_cmt = self.compression_format
+            else:
+                attribs = self.attribs | ResourceAttrs._compressed
+                self._update_cache() # ensures that self._cache is valid
+                data = self._cache
+                compression_cmt = None
+        else:
+            attribs = self.attribs - ResourceAttrs._compressed
+            data = self.data
+            compression_cmt = None
+
+        return data, attribs, compression_cmt
+
+    def _file_repr(self):
+        if self.compression_format:
+            attribs = self.attribs | ResourceAttrs._compressed
+            self._update_cache() # ensures that self._cache is valid
+            data = self._cache
+        else:
+            attribs = self.attribs - ResourceAttrs._compressed
+            data = self.data
+
+        return data, attribs
 
 
 def parse_file(from_resfile, fake_header_rsrc=False):

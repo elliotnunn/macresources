@@ -100,9 +100,9 @@ def GreggDecompress(src, dst, unpackSize, pos=0):
 
     hasDynamicTab = comprFlags & 1
     isBitmapped   = comprFlags & 2
-    print("tabSize: %d" % tabSize)
-    print("comprFlags: 0x%X, dynamic table: %s, bitmap data: %s" % (comprFlags,
-          "yes" if hasDynamicTab else "no", "yes" if isBitmapped else "no"))
+    # print("tabSize: %d" % tabSize)
+    # print("comprFlags: 0x%X, dynamic table: %s, bitmap data: %s" % (comprFlags,
+    #       "yes" if hasDynamicTab else "no", "yes" if isBitmapped else "no"))
 
     if hasDynamicTab:
         nEntries = tabSize + 1
@@ -223,4 +223,4 @@ def GreggCompress(src, dst, customTab='auto', isBitmapped='auto'):
         if len(src) & 1: # copy over last byte in the case of odd length
             dst.append(src[-1])
     else:
-        print("Non-bitmapped compression not yet implemented")
+        raise ValueError("Non-bitmapped compression not yet implemented")

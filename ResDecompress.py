@@ -10,20 +10,19 @@ from .GreggBits import GreggDecompress, GreggCompress
 def GetEncoding(dat):
     sig, hdrlen, vers, attrs, biglen = struct.unpack_from(">IHBBI", dat)
     if sig != 0xA89F6572:
-        print("Invalid extended resource header sig: 0x%X" % sig)
+        # print("Invalid extended resource header sig: 0x%X" % sig)
         return 'UnknownCompression'
     if vers not in (8, 9):
-        print("Unknown ext res header format: %d" % vers)
+        # print("Unknown ext res header format: %d" % vers)
         return 'UnknownCompression'
     if attrs & 1 == 0:
-        print("extAttributes,bit0 isn't set. Treat this res as uncompressed.")
+        # print("extAttributes,bit0 isn't set. Treat this res as uncompressed.")
         return 'UnknownCompression'
 
-    print("Uncompressed length: %d" % biglen)
+    # print("Uncompressed length: %d" % biglen)
 
     if vers == 8:
-        print('Donn unimplemented!'); return 'UnknownCompression'
-        return 'DonnBits'
+        return 'UnknownCompression' # return 'DonnBits'
     elif vers == 9:
         if dat[12:14] == b'\x00\x02':
             return 'GreggyBits'

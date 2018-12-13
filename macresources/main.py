@@ -265,14 +265,10 @@ def parse_rez_code(from_rezcode):
 
     from_rezcode = from_rezcode.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
 
-    for line in from_rezcode.split(b'\n'):
+    line_iter = iter(from_rezcode.split(b'\n'))
+    for line in line_iter:
         line = line.lstrip()
         if line.startswith(b'data '):
-            try:
-                yield cur_resource
-            except NameError:
-                pass
-
             _, _, line = line.partition(b' ')
             rsrctype, line = _rez_unescape(line)
             _, _, line = line.partition(b'(')
@@ -292,10 +288,8 @@ def parse_rez_code(from_rezcode):
                     args.append(('nonstring', arg))
 
             compression_format = None
-            line = line[1:].lstrip() # clip off the closing paren
-            if line.startswith(b'/* Compress: '):
-                line = line[13:]
-                compression_format = line.split()[0].decode('ascii')
+            a, b, c = line.partition(b'Compress:')
+            if b: compression_format = c.split()[0].decode('ascii')
 
             rsrcname = None
             rsrcattrs = ResourceAttrs(0)
@@ -316,18 +310,17 @@ def parse_rez_code(from_rezcode):
                             newattr = getattr(ResourceAttrs, arg.decode('ascii'))
                         rsrcattrs |= newattr
 
-            cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs)
-            cur_resource.compression_format = compression_format
+            data = bytearray()
+            for line in line_iter:
+                line = line.lstrip()
+                if not line.startswith(b'$"'): break
+                hexdat = line[2:].partition(b'"')[0]
+                bindat = bytes.fromhex(hexdat.decode('ascii'))
+                data.extend(bindat)
 
-        elif line.startswith(b'$"'):
-            hexdat = line[2:].partition(b'"')[0]
-            bindat = bytes.fromhex(hexdat.decode('ascii'))
-            cur_resource.data.extend(bindat)
-
-    try:
-        yield cur_resource
-    except NameError:
-        pass
+            cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs, data=data)
+            if compression_format: cur_resource.compression_format = compression_format
+            yield cur_resource
 
 
 def make_file(from_iter, align=1):
@@ -391,7 +384,7 @@ def make_file(from_iter, align=1):
             else:
                 this_name_offset = res.name_offset - namelist_offset
             this_data_offset = res.data_offset - data_offset
-            mixedfield = (int(attribs) << 24) | this_data_offset
+            mixedfield = (int(res.attribs) << 24) | this_data_offset
             struct.pack_into('>hHL', accum, counter, res.obj.id, this_name_offset, mixedfield)
 
             counter += 12

@@ -3,66 +3,64 @@
     Author: Max Poliakovski 2018
 '''
 import struct
-import sys
 
 from GreggBits import GreggDecompress, GreggCompress
 
 
-def DecompressResource(inf):
-    # get the extended resource header first
-    hdrFields = struct.unpack(">IHBBI", inf.read(12))
-    if hdrFields[0] != 0xA89F6572:
-        print("Invalid extended resource header sig: 0x%X" % hdrFields[0])
-    if hdrFields[1] != 18:
-        print("Suspicious extended resource header length: %d" % hdrFields[1])
-    if hdrFields[2] != 8 and hdrFields[2] != 9:
-        print("Unknown ext res header format: %d" % hdrFields[2])
-    if (hdrFields[3] & 1) == 0:
+def GetEncoding(dat):
+    sig, hdrlen, vers, attrs, biglen = struct.unpack_from(">IHBBI", dat)
+    if sig != 0xA89F6572:
+        print("Invalid extended resource header sig: 0x%X" % sig)
+        return 'UnknownCompression'
+    if vers not in (8, 9):
+        print("Unknown ext res header format: %d" % vers)
+        return 'UnknownCompression'
+    if attrs & 1 == 0:
         print("extAttributes,bit0 isn't set. Treat this res as uncompressed.")
+        return 'UnknownCompression'
 
-    print("Uncompressed length: %d" % hdrFields[4])
+    print("Uncompressed length: %d" % biglen)
 
-    if hdrFields[2] == 8:
-        DonnSpecific = struct.unpack(">BBHH", inf.read(6))
-        print("DonnDecompress isn't supported yet.")
-        exit()
+    if vers == 8:
+        print('Donn unimplemented!'); return 'UnknownCompression'
+        return 'DonnBits'
+    elif vers == 9:
+        if dat[12:14] == b'\x00\x02':
+            return 'GreggyBits'
+        else:
+            return 'UnknownCompression'
     else:
-        GreggSpecific = struct.unpack(">HHBB", inf.read(6))
-
-    fsize = inf.seek(0, 2)
-    print("Compressed size: %d" % fsize)
-    inf.seek(hdrFields[1], 0) # rewind to the start of compressed data
-
-    dstBuf = bytearray()
-    srcBuf = inf.read(fsize - hdrFields[1])
-
-    # invoke GreggyBits decompressor and pass over required header data
-    GreggDecompress(srcBuf, dstBuf, hdrFields[4], GreggSpecific[2], GreggSpecific[3])
-
-    with open("Dump", 'wb') as outstream:
-        outstream.write(dstBuf)
-
-    # re-compress
-    recompBuf = bytearray()
-
-    # re-create extended resource header
-    recompBuf.extend([0xA8, 0x9F, 0x65, 0x72, 0x00, 0x12, 0x09, 0x01])
-    recompBuf.extend(hdrFields[4].to_bytes(4, 'big'))
-    recompBuf.extend([0x00, 0x02, 0x00, 0x00])
-    recompBuf.append(GreggSpecific[2])
-    recompBuf.append(GreggSpecific[3])
-
-    GreggCompress(dstBuf, recompBuf, hdrFields[4], customTab=True, isBitmapped=True)
-
-    with open("RecompDump", 'wb') as outstream:
-        outstream.write(recompBuf)
+        return 'UnknownCompression'
 
 
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        file = "Compressed"
-    else:
-        file = sys.argv[1]
+def DecompressResource(dat):
+    encoding = GetEncoding(dat)
+    sig, hdrlen, vers, attrs, biglen = struct.unpack_from(">IHBBI", dat)
 
-    with open(file, 'rb') as instream:
-        DecompressResource(instream)
+    if encoding == 'DonnBits':
+        raise NotImplementedError('DonnBits')
+
+    elif encoding == 'GreggyBits':
+        dst = bytearray()
+        GreggDecompress(dat, dst, unpackSize=biglen, pos=12)
+        return bytes(dst)
+
+    elif encoding == 'UnknownCompression':
+        return dat # passthru
+
+
+def CompressResource(dat, encoding):
+    if encoding == 'UnknownCompression':
+        return dat
+
+    elif encoding == 'GreggyBits':
+        dst = bytearray()
+
+        # re-create extended resource header
+        dst.extend([0xA8, 0x9F, 0x65, 0x72, 0x00, 0x12, 0x09, 0x01])
+        dst.extend(len(dat).to_bytes(4, 'big'))
+
+        # leave Gregg-specific header to the compressor
+        GreggCompress(dat, dst)
+
+        return bytes(dst)

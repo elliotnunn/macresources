@@ -4,7 +4,7 @@
 '''
 import struct
 
-from GreggBits import GreggDecompress, GreggCompress
+from .GreggBits import GreggDecompress, GreggCompress
 
 
 def GetEncoding(dat):

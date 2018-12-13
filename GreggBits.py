@@ -85,16 +85,19 @@ def DecodeMaskedWords(src, dst, pos, n, tab, mask):
     return pos
 
 
-def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
+def GreggDecompress(src, dst, unpackSize, pos=0):
     '''Decompress resource data from src to dst.
 
        Parameters:
        src          source buffer containing compressed data
        dst          destination buffer, must be bytearray to work properly
        unpackSize   size in bytes of the unpacked resource data
-       tabSize      size of the embedded lookup table
-       comprFlags   compression flags from the extended resource header
+       pos          offset to my Gregg-specific buffer in src
     '''
+
+    _dcmp, _slop, tabSize, comprFlags = struct.unpack_from(">HHBB", src, pos)
+    pos += 6
+
     hasDynamicTab = comprFlags & 1
     isBitmapped   = comprFlags & 2
     print("tabSize: %d" % tabSize)
@@ -103,8 +106,8 @@ def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
 
     if hasDynamicTab:
         nEntries = tabSize + 1
-        pos = nEntries * 2
-        dynamicLUT = struct.unpack(">" + str(nEntries) + "H", src[:pos])
+        dynamicLUT = struct.unpack_from(">" + str(nEntries) + "H", src, pos)
+        pos += nEntries * 2
         # dump dynamic LUT
         if 0:
             for idx, elem in enumerate(dynamicLUT):
@@ -114,8 +117,6 @@ def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
                     print(", ", end="")
                 print("0x%04X" % elem, end="")
             print("")
-    else:
-        pos = 0
 
     LUT = dynamicLUT if hasDynamicTab else GreggDefLUT
     nWords = unpackSize >> 1
@@ -143,16 +144,20 @@ def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
             pos += 1
 
     if hasExtraByte: # have a got an extra byte at the end?
-        dst.expand(src[pos]) # copy it over
+        dst.append(src[pos]) # copy it over
         pos += 1
 
     #print("Last input position: %d" % pos)
 
 
-def GreggCompress(src, dst, unpackSize, customTab=False, isBitmapped=False):
-    if customTab:
+def GreggCompress(src, dst, customTab='auto', isBitmapped='auto'):
+    # future addition 
+    customTab = True # so the big code path gets tested!
+    isBitmapped = True # required for now
+
+    if customTab: # calculate, and if necessary, resolve 'auto'
         # convert input bytes into an array of words
-        nWords = unpackSize >> 1
+        nWords = len(src) >> 1
         inWords = struct.unpack(">" + str(nWords) + "H", src[:nWords*2])
 
         # count occurence of each word
@@ -193,6 +198,14 @@ def GreggCompress(src, dst, unpackSize, customTab=False, isBitmapped=False):
                 print("0x%04X" % elem, end="")
             print("")
 
+        # here, decide whether 'auto' customTab should be on or off!
+
+    # write out the header
+    isBitmapped = True # will need to resolve this later
+    flags = customTab * 1 + isBitmapped * 2
+    dst.extend(struct.pack(">HHBB", 2, 0, len(embeddedTab)-1, flags))
+
+    if customTab:
         # write the constructed table into output
         for word in embeddedTab:
             dst.extend(word.to_bytes(2, 'big'))
@@ -207,7 +220,7 @@ def GreggCompress(src, dst, unpackSize, customTab=False, isBitmapped=False):
         if nWords & 7:
             pos = EncodeMaskedWords(inWords, dst, pos, nWords & 7, embeddedTab)
 
-        if unpackSize & 1: # copy over last byte in the case of odd length
+        if len(src) & 1: # copy over last byte in the case of odd length
             dst.append(src[-1])
     else:
         print("Non-bitmapped compression not yet implemented")

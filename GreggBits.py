@@ -143,7 +143,7 @@ def GreggDecompress(src, dst, unpackSize, tabSize, comprFlags):
             pos += 1
 
     if hasExtraByte: # have a got an extra byte at the end?
-        dst.expand(src[pos]) # copy it over
+        dst.append(src[pos]) # copy it over
         pos += 1
 
     #print("Last input position: %d" % pos)

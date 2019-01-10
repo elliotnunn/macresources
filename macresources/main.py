@@ -1,10 +1,14 @@
 import collections
 import struct
 import enum
+import re
 from ResDecompress import DecompressResource, CompressResource, GetEncoding
 
 
 FAKE_HEADER_RSRC_TYPE = b'header' # obviously invalid
+
+
+RE_COMPRESS = re.compile(rb'(?i)^/[*/].*?compress(?:ion)?\s*[:=]?\s*([-_a-zA-Z0-9]+)')
 
 
 MAP = bytearray(range(256))
@@ -174,19 +178,24 @@ class Resource:
     def _rez_repr(self, expand=False): # the Rez file will be annotated for re-compression
         if self.compression_format:
             if expand:
-                attribs = ResourceAttrs(self.attribs & ~1)
                 if self.compression_format == 'UnknownCompression':
                     attribs = ResourceAttrs(self.attribs | 1) # so Rez will produce a valid file
+                    compression_format = None
+                else:
+                    attribs = ResourceAttrs(self.attribs & ~1) # hide the compression from Rez
+                    compression_format = self.compression_format # but expose it via a comment
+
                 try:
                     data = self.data # prefer clean data from user
                 except ResExpandError:
                     data = self._cache # sad fallback on original compressed data
-                compression_format = self.compression_format
+
             else:
                 attribs = ResourceAttrs(self.attribs | 1)
                 self._update_cache() # ensures that self._cache is valid
                 data = self._cache
                 compression_format = None
+
         else:
             attribs = ResourceAttrs(self.attribs & ~1)
             data = self.data
@@ -266,9 +275,13 @@ def parse_rez_code(from_rezcode):
     from_rezcode = from_rezcode.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
 
     line_iter = iter(from_rezcode.split(b'\n'))
+    compression_format = None
     for line in line_iter:
         line = line.lstrip()
-        if line.startswith(b'data '):
+        m = RE_COMPRESS.match(line)
+        if m:
+            compression_format = m.group(1).decode('mac_roman')
+        elif line.startswith(b'data '):
             _, _, line = line.partition(b' ')
             rsrctype, line = _rez_unescape(line)
             _, _, line = line.partition(b'(')
@@ -286,10 +299,6 @@ def parse_rez_code(from_rezcode):
                         arg.append(line[0])
                         line = line[1:]
                     args.append(('nonstring', arg))
-
-            compression_format = None
-            a, b, c = line.partition(b'Compress:')
-            if b: compression_format = c.split()[0].decode('ascii')
 
             rsrcname = None
             rsrcattrs = ResourceAttrs(0)
@@ -321,6 +330,8 @@ def parse_rez_code(from_rezcode):
             cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs, data=data)
             if compression_format: cur_resource.compression_format = compression_format
             yield cur_resource
+
+            compression_format = None
 
 
 def make_file(from_iter, align=1):
@@ -438,10 +449,9 @@ def make_rez_code(from_iter, ascii_clean=False, expand=False):
 
         if resource.type == FAKE_HEADER_RSRC_TYPE:
             lines.append(b'#if 0')
-        lines.append(b'data %s (%s) {' % (fourcc, args))
         if compression_format:
-            cmt = ('Compress: ' + compression_format).replace('Compress: UnknownCompression', 'Unknown compression format')
-            lines[-1] += b' /* %s */' % cmt.encode('mac_roman')
+            lines.append(b'// compress %s' % compression_format.encode('mac_roman'))
+        lines.append(b'data %s (%s) {' % (fourcc, args))
 
         step = 16
 

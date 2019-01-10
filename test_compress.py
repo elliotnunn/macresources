@@ -1,4 +1,4 @@
-from ResDecompress import GetEncoding, DecompressResource, CompressResource
+from .macresources.compression import GetEncoding, DecompressResource, CompressResource
 
 def compress_then_extract(dat, encoding):
     a = CompressResource(dat, encoding);

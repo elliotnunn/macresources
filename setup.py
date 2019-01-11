@@ -17,6 +17,6 @@ setup(
         'Topic :: System :: Filesystems',
         'Development Status :: 3 - Alpha',
     ],
-    packages=['macresources', 'ResDecompress'],
+    packages=['macresources'],
     scripts=['bin/SimpleRez', 'bin/SimpleDeRez'],
 )

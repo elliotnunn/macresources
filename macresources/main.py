@@ -2,7 +2,7 @@ import collections
 import struct
 import enum
 import re
-from ResDecompress import DecompressResource, CompressResource, GetEncoding
+from .compression import DecompressResource, CompressResource, GetEncoding
 
 
 FAKE_HEADER_RSRC_TYPE = b'header' # obviously invalid

@@ -3,6 +3,8 @@
 import argparse
 import macresources
 import sys
+import tempfile
+from os import path
 
 def fourcc(s):
     b = s.encode('mac_roman').ljust(4, b' ')
@@ -43,6 +45,7 @@ parser = argparse.ArgumentParser(description='''
 parser.add_argument('srcfile', help='resource file or Rez file')
 parser.add_argument('type', type=fourcc, help='four-byte type of resource (converted to Mac Roman pre-lookup)')
 parser.add_argument('id', type=resid, help='ID number of resource (-32768 to 32767)')
+parser.add_argument('-f', dest='tofile', action='store_true', help='copy to a tempfile instead')
 
 args = parser.parse_args()
 
@@ -56,10 +59,18 @@ else:
 
 for r in resources:
     if r.type == args.type and r.id == args.id:
-        try:
-            sys.stdout.buffer.write(r.data)
-        except BrokenPipeError:
-            pass
+        myres = r
         break
 else:
     raise ValueError(args.type, args.id)
+
+if args.tofile:
+    tmpname = '-%s-%s-%d' % (path.basename(args.srcfile), myres.type.decode('mac_roman'), myres.id)
+    with tempfile.NamedTemporaryFile(suffix=tmpname, delete=False, mode='wb') as f:
+        f.write(myres.data)
+        print(f.name)
+else:
+    try:
+        sys.stdout.buffer.write(myres.data)
+    except BrokenPipeError:
+        pass

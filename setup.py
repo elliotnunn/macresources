@@ -18,5 +18,5 @@ setup(
         'Development Status :: 3 - Alpha',
     ],
     packages=['macresources'],
-    scripts=['bin/SimpleRez', 'bin/SimpleDeRez', 'bin/Rget'],
+    scripts=['bin/SimpleRez', 'bin/SimpleDeRez', 'bin/Rget', 'bin/Rhqx'],
 )

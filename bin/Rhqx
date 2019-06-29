@@ -1,0 +1,44 @@
+from os import path
+import argparse
+import binhex
+import macresources
+
+parser = argparse.ArgumentParser(description='''
+    Convert a "rdump" file (provide base name) to hqx
+''')
+
+parser.add_argument('srcfile', help='base name (.rdump/.idump should be alongside)')
+
+args = parser.parse_args()
+
+
+finfo = binhex.FInfo()
+finfo.Flags = 0
+
+try:
+    info = open(args.srcfile + '.idump', 'rb').read(8)
+    assert len(info) == 8
+    finfo.Type = info[:4]
+    finfo.Creator = info[4:]
+except:
+    pass
+
+try:
+    data = open(args.srcfile, 'rb').read()
+    if finfo.Type in [b'TEXT', b'ttro']:
+        data = data.decode('utf-8').encode('mac_roman')
+except:
+    data = b''
+
+try:
+    rsrc = open(args.srcfile + '.rdump', 'rb').read()
+    rsrc = macresources.make_file(macresources.parse_rez_code(rsrc))
+except:
+    rsrc = b''
+
+bh = binhex.BinHex((path.basename(args.srcfile), finfo, len(data), len(rsrc)), args.srcfile + '.hqx')
+
+bh.write(data)
+bh.write_rsrc(rsrc)
+
+bh.close()

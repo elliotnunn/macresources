@@ -1,44 +1,80 @@
+import os
 from os import path
 import argparse
 import macresources
 from macresources import binhex
 
 parser = argparse.ArgumentParser(description='''
-    Convert a "rdump" file (provide base name) to hqx
+    Supply base name to convert datafork+rdump+idump to HQX.
+    Supply base.hqx name to convert HQX to datafork+rdump+idump.
 ''')
 
-parser.add_argument('srcfile', help='base name (.rdump/.idump should be alongside)')
+parser.add_argument('srcfile', nargs='*', help='base or base.hqx')
 
 args = parser.parse_args()
 
 
-finfo = binhex.FInfo()
-finfo.Flags = 0
+for srcfile in args.srcfile:
+    # Case 1: from BinHex
+    if path.splitext(path.basename(srcfile))[1].lower() == '.hqx':
+        hb = binhex.HexBin(srcfile)
 
-try:
-    info = open(args.srcfile + '.idump', 'rb').read(8)
-    assert len(info) == 8
-    finfo.Type = info[:4]
-    finfo.Creator = info[4:]
-except:
-    pass
+        base = path.splitext(srcfile)[0]
 
-try:
-    data = open(args.srcfile, 'rb').read()
-    if finfo.Type in [b'TEXT', b'ttro']:
-        data = data.decode('utf-8').encode('mac_roman')
-except:
-    data = b''
+        if hb.FInfo.Type == hb.FInfo.Creator == b'????':
+            try:
+                os.remove(base + '.idump')
+            except FileNotFoundError:
+                pass
+        else:
+            with open(base + '.idump', 'wb') as f:
+                f.write(hb.FInfo.Type + hb.FInfo.Creator)
 
-try:
-    rsrc = open(args.srcfile + '.rdump', 'rb').read()
-    rsrc = macresources.make_file(macresources.parse_rez_code(rsrc))
-except:
-    rsrc = b''
+        data = hb.read()
+        if hb.FInfo.Type in [b'TEXT', b'ttro']:
+            data = data.replace(b'\r', b'\n').decode('mac_roman').encode('utf-8')
+        with open(base, 'wb') as f:
+            f.write(data)
 
-bh = binhex.BinHex((path.basename(args.srcfile), finfo, len(data), len(rsrc)), args.srcfile + '.hqx')
+        rsrc = hb.read_rsrc()
+        if rsrc:
+            with open(base + '.rdump', 'wb') as f:
+                f.write(macresources.make_rez_code(macresources.parse_file(rsrc), ascii_clean=True))
+        else:
+            try:
+                os.remove(base + '.rdump')
+            except FileNotFoundError:
+                pass
 
-bh.write(data)
-bh.write_rsrc(rsrc)
+    # Case 2: to BinHex
+    else:
+        finfo = binhex.FInfo()
+        finfo.Flags = 0
 
-bh.close()
+        try:
+            info = open(srcfile + '.idump', 'rb').read(8)
+            assert len(info) == 8
+            finfo.Type = info[:4]
+            finfo.Creator = info[4:]
+        except:
+            pass
+
+        try:
+            data = open(srcfile, 'rb').read()
+            if finfo.Type in [b'TEXT', b'ttro']:
+                data = data.replace(b'\n', b'\r').decode('utf-8').encode('mac_roman')
+        except:
+            data = b''
+
+        try:
+            rsrc = open(srcfile + '.rdump', 'rb').read()
+            rsrc = macresources.make_file(macresources.parse_rez_code(rsrc))
+        except:
+            rsrc = b''
+
+        bh = binhex.BinHex((path.basename(srcfile), finfo, len(data), len(rsrc)), srcfile + '.hqx')
+
+        bh.write(data)
+        bh.write_rsrc(rsrc)
+
+        bh.close()

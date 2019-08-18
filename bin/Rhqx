@@ -1,7 +1,7 @@
 from os import path
 import argparse
-import binhex
 import macresources
+from macresources import binhex
 
 parser = argparse.ArgumentParser(description='''
     Convert a "rdump" file (provide base name) to hqx

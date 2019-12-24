@@ -92,12 +92,14 @@ class ResourceAttrs(enum.IntFlag):
     _compressed = 0x01 # "indicates that the resource data is compressed" (only documented in https://github.com/kreativekorp/ksfl/wiki/Macintosh-Resource-File-Format)
 
     def _for_derez(self):
-        for possible in self.__class__:
-            if not possible.name.startswith('_') and self & possible:
-                yield possible.name
+        mylist = [p.name for p in self.__class__ if self & p]
+        if any(p.startswith('_') for p in mylist):
+            arg = '$%02X' % self
+            mylist = [arg]
+        return mylist
 
 
-class Resource:
+class Resource(bytearray):
     """
     A single Mac resource. A four-byte type, a numeric id and some
     binary data are essential. Extra attributes and a name string are
@@ -124,6 +126,14 @@ class Resource:
         datarep = repr(bytes(self.data[:4]))
         if len(self.data) > len(datarep): datarep += '...%sb' % len(self.data)
         return '%s(type=%r, id=%r, name=%r, attribs=%r, data=%s)' % (self.__class__.__name__, self.type, self.id, self.name, self.attribs, datarep)
+
+    @property
+    def data(self):
+        return self
+
+    @data.setter
+    def data(self, set_to):
+        self[:] = set_to
 
 
 def parse_file(from_resfile, fake_header_rsrc=False):

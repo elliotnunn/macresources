@@ -164,12 +164,12 @@ class BinHex:
         nl = len(name)
         if nl > 63:
             raise Error('Filename too long')
-        d = bytes([nl]) + name.encode("latin-1") + b'\0'
+        d = bytes([nl]) + name.encode("mac_roman") + b'\0'
         tp, cr = finfo.Type, finfo.Creator
         if isinstance(tp, str):
-            tp = tp.encode("latin-1")
+            tp = tp.encode("mac_roman")
         if isinstance(cr, str):
-            cr = cr.encode("latin-1")
+            cr = cr.encode("mac_roman")
         d2 = tp + cr
 
         # Force all structs to be packed with big-endian

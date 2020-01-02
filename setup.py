@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='macresources',
-    version='0.1dev',
+    version='1.0',
     author='Elliot Nunn',
     author_email='elliotnunn@me.com',
     description='Library for working with legacy Macintosh resource forks',
@@ -18,5 +18,5 @@ setup(
         'Development Status :: 3 - Alpha',
     ],
     packages=['macresources'],
-    scripts=['bin/SimpleRez', 'bin/SimpleDeRez', 'bin/Rget', 'bin/Rhqx'],
+    scripts=['bin/SimpleRez', 'bin/SimpleDeRez', 'bin/hexrez', 'bin/rezhex', 'bin/sortrez', 'bin/rfx'],
 )

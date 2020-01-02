@@ -1,0 +1,146 @@
+#!/usr/bin/env python3
+
+import macresources
+import sys
+import tempfile
+from os import path
+import re
+import subprocess
+import textwrap
+
+
+if len(sys.argv) < 2 or sys.argv[1].startswith('-'):
+    sys.exit(textwrap.dedent('''
+        usage: rfx command [arg[//type/id] ...]
+
+        Shell command wrapper for accessing resources inside a Rez textfile
+
+        Resources specified as filename.rdump//type/id are converted to tempfiles before
+        the command is run, and back to resources after the command returns.
+
+        examples:
+            rfx mv Doc.rdump//STR/0 Doc.rdump//STR/1
+            rfx cp App.rdump//PICT/2000 2000.pict
+            rfx rm System.rdump//vers/2
+    ''').strip())
+
+
+bytearray_cache = {}
+original_cache = {}
+
+def get_cached_file(the_path):
+    # Different paths to the same file are unlikely, but just in case:
+    the_path = path.abspath(the_path)
+
+    try:
+        return bytearray_cache[the_path]
+    except KeyError:
+        try:
+            with open(the_path, 'rb') as f:
+                d = f.read()
+        except FileNotFoundError:
+            d = bytes()
+
+        original_cache[the_path] = d
+        bytearray_cache[the_path] = bytearray(d)
+        return bytearray_cache[the_path]
+
+def flush_cache():
+    for the_path, the_data in bytearray_cache.items():
+        if original_cache[the_path] != the_data:
+            with open(the_path, 'wb') as f:
+                f.write(the_data)
+
+
+def rez_resource_range(the_data, the_type, the_id):
+    if not the_data: return (0, 0)
+
+    # Hack... do a text search instead of Rezzing the whole file!
+    search = macresources.make_rez_code([macresources.Resource(the_type, the_id)], ascii_clean=True)
+    search = search.rpartition(b')')[0]
+
+    start = 0
+    while True:
+        start = the_data.find(search, start)
+        if start == -1: return (0, 0)
+        if (the_data[start-1:start] in b'\n') and (the_data[start+len(search):start+len(search)+1] in (b',', b')')):
+            break
+        start += len(search)
+
+    stop = the_data.index(b'\n};\n\n', start) + 5
+
+    return (start, stop)
+
+
+def rez_shrink_range(the_data, start, stop):
+    start = the_data.index(b'\n', start) + 1
+    while the_data[stop:stop+1] != b'}': stop -= 1
+
+    return (start, stop)
+
+
+def rez_get_resource(the_path, the_type, the_id):
+    the_file = get_cached_file(the_path)
+
+    start, stop = rez_resource_range(the_file, the_type, the_id)
+    if start == stop == 0: return None
+    return next(macresources.parse_rez_code(the_file[start:stop])).data
+
+
+def rez_set_resource(the_path, the_type, the_id, the_data):
+    the_file = get_cached_file(the_path)
+
+    newdata = macresources.make_rez_code([macresources.Resource(the_type, the_id, data=the_data)], ascii_clean=True)
+
+    start, stop = rez_resource_range(the_file, the_type, the_id)
+    if start == stop == 0:
+        the_file.extend(newdata)
+    else:
+        start, stop = rez_shrink_range(the_file, start, stop)
+        istart, istop = rez_shrink_range(newdata, 0, len(newdata))
+
+        the_file[start:stop] = newdata[istart:istop]
+
+
+def rez_delete_resource(the_path, the_type, the_id):
+    the_file = get_cached_file(the_path)
+
+    start, stop = rez_resource_range(the_file, the_type, the_id)
+    del the_file[start:stop]
+
+
+with tempfile.TemporaryDirectory() as backup_tmp_dir:
+    new_argv = [sys.argv[1]]
+    to_retrieve = []
+
+    for i, arg in enumerate(sys.argv[2:], 1):
+        m = re.match(r'(.*[^/])//([^/]{1,4})/(-?\d+)$'.replace('/', re.escape(path.sep)), arg)
+
+        if m:
+            res_spec = (m.group(1), m.group(2).encode('mac_roman').ljust(4)[:4], int(m.group(3)))
+            tmp_file = path.join(backup_tmp_dir, str(i))
+
+            to_retrieve.append((tmp_file, res_spec))
+
+            res_data = rez_get_resource(*res_spec)
+            if res_data is not None:
+                with open(tmp_file, 'wb') as f:
+                    f.write(res_data)
+
+            new_argv.append(tmp_file)
+
+        else:
+            new_argv.append(arg)
+
+    result = subprocess.run(new_argv)
+
+    for tmp_file, res_spec in to_retrieve:
+        try:
+            with open(tmp_file, 'rb') as f:
+                rez_set_resource(*res_spec, f.read())
+        except FileNotFoundError:
+            rez_delete_resource(*res_spec)
+
+flush_cache()
+
+sys.exit(result.returncode)

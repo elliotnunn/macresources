@@ -7,13 +7,6 @@ data 'elmo' (123, "lamename") {
 };
 """.strip()
 
-def test_enum():
-    r = ResourceAttrs
-    r1 = ResourceAttrs.sysheap
-    r2 = ResourceAttrs.purgeable
-    assert int(r1 | r2) == 0x60
-    assert bool((r1 | r2) & r1)
-
 def test_parse_file():
     l = list(parse_file(RF))
 

@@ -1,9 +1,41 @@
 import collections
 import struct
 import enum
+import re
 
 
-FAKE_HEADER_RSRC_TYPE = b'header' # obviously invalid
+# The allowed token sequence when parsing Rez code (quite restrictive)
+rez_tokens = [
+    ((),         r'(\s|//.*?\n|/\*.*?\*/)+'),                                   # 0 whitespace/comment (gets ignored)
+    ((1,11),     r'\$"\s*((?:[0-9A-Fa-f]{2}\s*)*)"'),                           # 1 hex data
+    ((3,),       r'(data)'),                                                    # 2 start of raw resource
+    ((4,),       r"('(?:[^'\\]|\\0x[0-9A-Fa-f]{2}|\\[\\'\\?btrvfn])*')"),       # 3 type
+    ((5,),       r'(\()'),                                                      # 4 start of bracketed resource info
+    ((6,7,8,9),  r'(-?\d+)'),                                                   # 5 ID
+    ((7,8,9),    r',gap("(?:[^"\\]|\\0x[0-9A-Fa-f]{2}|\\[\\"\\?btrvfn])*")'),   # 6 name
+    ((9,),       r',gap\$([0-9a-fA-F]{1,2})'),                                  # 7 attribs (hex)
+    ((8,9),      r',gap(sysheap|purgeable|locked|protected|preload)'),          # 8 attribs (specific)
+    ((10,),      r'(\))'),                                                      # 9 end of bracketed resource info
+    ((1,11),     r'(\{)'),                                                      # 10 start of hex block
+    ((12,),      r'(\})'),                                                      # 11 end of hex block
+    ((2,-1),     r'(;)'),                                                       # 12 the end for real
+    ((),         r'(.)'),                                                       # 13 unexpected character (always errors)
+]
+
+allowed_to_follow_kind, token_regexen = zip(*rez_tokens)
+
+# The 'gap' hack turns ', sysheap' etc into a single token
+gap = r'(?:\s|//.*?\n|/\*.*?\*/)*'
+rez_tokenizer = '|'.join(token_regexen).replace('gap', gap).encode('ascii')
+rez_tokenizer = re.compile(rez_tokenizer)
+
+
+class RezSyntaxError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
+
+    def __str__(self):
+       return self.msg
 
 
 MAP = bytearray(range(256))
@@ -46,57 +78,15 @@ def _rez_escape(src, singlequote=False, ascii_clean=False):
     return b''.join(chars)
 
 
-def _rez_unescape(src):
-    the_quote = src[0:1]
-    src = src[1:]
-
-    backslash_dict = {
-        b'b': 8,
-        b't': 9,
-        b'r': 10,
-        b'v': 11,
-        b'f': 12,
-        b'n': 13,
-        b'?': 127,
-    }
-
-    chars = []
-    while not src.startswith(the_quote):
-        if src.startswith(b'\\'):
-            src = src[1:]
-            if src.startswith(b'0x'):
-                ch = int(src[2:4].decode('ascii'), 16)
-                src = src[4:]
-            else:
-                ch = backslash_dict.get(src[0:1], src[0])
-                src = src[1:]
-        else:
-            ch = src[0]
-            src = src[1:]
-        chars.append(ch)
-    src = src[1:] # cut off the final quote
-    chars = bytes(chars)
-    return chars, src # return leftover in tuple
-
-
-class ResourceAttrs(enum.IntFlag):
-    """Resource attibutes byte."""
-    
-    _sysref = 0x80 # "reference to system/local reference" (unclear significance)
-    sysheap = 0x40 # load into System heap instead of app heap
-    purgeable = 0x20 # Memory Mgr may remove from heap to free up memory
-    locked = 0x10 # Memory Mgr may not move the block to reduce fragmentation
-    protected = 0x08 # prevents app from changing resource
-    preload = 0x04 # causes resource to be read into heap as soon as file is opened
-    _changed = 0x02 # marks a resource that has been changes since loading from file (should not be seen on disk)
-    _compressed = 0x01 # "indicates that the resource data is compressed" (only documented in https://github.com/kreativekorp/ksfl/wiki/Macintosh-Resource-File-Format)
-
-    def _for_derez(self):
-        mylist = [p.name for p in self.__class__ if self & p]
-        if any(p.startswith('_') for p in mylist):
-            arg = '$%02X' % self
-            mylist = [arg]
-        return mylist
+def attribs_for_derez(attribs):
+    if attribs & ~0x7C:
+        yield '$%02X' % attribs
+    else:
+        if attribs & 0x40: yield 'sysheap'
+        if attribs & 0x20: yield 'purgeable'
+        if attribs & 0x10: yield 'locked'
+        if attribs & 0x08: yield 'protected'
+        if attribs & 0x04: yield 'preload'
 
 
 class Resource(bytearray):
@@ -106,21 +96,12 @@ class Resource(bytearray):
     optional.
     """
 
-    ALL_ATTRIBS = [
-        'sysheap',
-        'purgeable',
-        'locked',
-        'protected',
-        'preload',
-    ]
-
-    def __init__(self, type, id, name=None, attribs=0, data=None):
+    def __init__(self, type, id, name=None, attribs=0, data=b''):
         self.type = type
         self.id = id
-        self.data = data or bytearray()
+        self.data = data
         self.name = name
-        self.attribs = ResourceAttrs(0)
-        self.attribs |= attribs
+        self.attribs = attribs
 
     def __repr__(self):
         datarep = repr(bytes(self.data[:4]))
@@ -136,14 +117,11 @@ class Resource(bytearray):
         self[:] = set_to
 
 
-def parse_file(from_resfile, fake_header_rsrc=False):
+def parse_file(from_resfile):
     """Get an iterator of Resource objects from a binary resource file."""
 
     if not from_resfile: # empty resource forks are fine
         return
-
-    if fake_header_rsrc and any(from_resfile[16:256]):
-        yield Resource(FAKE_HEADER_RSRC_TYPE, 0, name='Header as fake resource (not for Rez)', data=from_resfile[16:256])
 
     data_offset, map_offset, data_len, map_len = struct.unpack_from('>4L', from_resfile)
 
@@ -182,7 +160,36 @@ def parse_file(from_resfile, fake_header_rsrc=False):
             yield Resource(type=rtype, id=rid, name=name, attribs=rattribs, data=bytearray(rdata))
 
 
-def parse_rez_code(from_rezcode):
+def string_surrogate(m):
+    m = m.group(0)
+
+    if len(m) == 5: # \0xFF is the most common
+        return bytes([int(m[3:], 16)])
+    elif m == b'\\"':
+        return b'"'
+    elif m == b"\\'":
+        return b"'"
+    elif m == b'\\b':
+        return b'\x08' # backspace
+    elif m == b'\\t':
+        return b'\t'
+    elif m == b'\\r':
+        return b'\n'
+    elif m == b'\\v':
+        return b'\x0b' # vertical tab
+    elif m == b'\\f':
+        return b'\x0c' # form feed
+    elif m == b'\\n':
+        return b'\r'
+    elif m == b'\\?':
+        return b'\x7f' # del
+
+
+def string_literal(string):
+    return re.sub(rb'(\\0x..|\\.)', string_surrogate, string[1:-1])
+
+
+def parse_rez_code(from_rezcode, original_file='<string>'):
     """Get an iterator of Resource objects from code in a subset of the Rez language (bytes or str)."""
 
     try:
@@ -192,63 +199,74 @@ def parse_rez_code(from_rezcode):
 
     from_rezcode = from_rezcode.replace(b'\r\n', b'\n').replace(b'\r', b'\n')
 
-    for line in from_rezcode.split(b'\n'):
-        line = line.lstrip()
+    # Slightly faster than finditer
+    all_tokens = rez_tokenizer.findall(from_rezcode)
+    def line_no_for_error(token_idx):
+        # Redo all the lexing with finditer, which is slower but
+        # gives us Match objects with a byte offset
+        work_redoer = rez_tokenizer.finditer(from_rezcode)
+        match_obj = next(m for i, m in enumerate(work_redoer) if i == token_idx)
+        line_no = from_rezcode[:match_obj.start()].count(ord('\n')) + 1
 
-        if line.startswith(b'data '):
-            try:
-                yield cur_resource
-            except NameError:
-                pass
+    allowed_token_kinds = (2,-1)
+    for token_idx, token_captures in enumerate(all_tokens):
+        # Which single capture is non-empty?
+        for token_kind, payload in enumerate(token_captures):
+            if payload: break
 
-            _, _, line = line.partition(b' ')
-            rsrctype, line = _rez_unescape(line)
-            _, _, line = line.partition(b'(')
+        # Ignore whitespace
+        if not token_kind: continue
 
-            args = []
-            while True:
-                line = line.lstrip(b' ,\t')
-                if line.startswith(b')'): break
-                if line.startswith(b'"'):
-                    arg, line = _rez_unescape(line)
-                    args.append(('string', arg))
-                else:
-                    arg = bytearray()
-                    while line and line[0:1] not in b' ,\t)':
-                        arg.append(line[0])
-                        line = line[1:]
-                    args.append(('nonstring', arg))
+        # Unexpected token!
+        if token_kind not in allowed_token_kinds:
+            raise RezSyntaxError('File %r, line %r' % (original_file, line_no_for_error(token_idx)))
 
-            rsrcname = None
-            rsrcattrs = ResourceAttrs(0)
+        elif token_kind == 1:
+            hex_accum.append(payload)
 
-            for i, (argtype, arg) in enumerate(args):
-                if i == 0 and argtype == 'nonstring':
-                    rsrcid = int(arg)
+        elif token_kind == 2:
+            res = Resource(b'', 0)
+            hex_accum = []
 
-                elif i > 0:
-                    if argtype == 'string':
-                        rsrcname = arg.decode('mac_roman')
-                    else:
-                        if arg.startswith(b'$'):
-                            newattr = int(arg[1:], 16)
-                        elif arg and arg[0] in b'0123456789':
-                            newattr = int(arg)
-                        else:
-                            newattr = getattr(ResourceAttrs, arg.decode('ascii'))
-                        rsrcattrs |= newattr
+        elif token_kind == 3:
+            res.type = string_literal(payload)
+            if len(res.type) != 4:
+                raise RezSyntaxError('File %r, line %r, type not 4 chars' % (original_file, line_no_for_error(token_idx)))
 
-            cur_resource = Resource(type=rsrctype, id=rsrcid, name=rsrcname, attribs=rsrcattrs)
+        elif token_kind == 5:
+            res.id = int(payload)
+            if not (-65536 <= res.id < 65536):
+                raise RezSyntaxError('File %r, line %r, ID out of 16-bit range' % (original_file, line_no_for_error(token_idx)))
 
-        elif line.startswith(b'$"'):
-            hexdat = line[2:].partition(b'"')[0]
-            bindat = bytes.fromhex(hexdat.decode('ascii'))
-            cur_resource.data.extend(bindat)
+        elif token_kind == 6:
+            res.name = string_literal(payload).decode('mac_roman')
+            if len(res.name) > 255:
+                raise RezSyntaxError('File %r, line %r, name > 255 chars' % (original_file, line_no_for_error(token_idx)))
 
-    try:
-        yield cur_resource
-    except NameError:
-        pass
+        elif token_kind == 7:
+            res.attribs = int(payload, 16)
+
+        elif token_kind == 8:
+            if payload == b'sysheap':
+                res.attribs |= 0x40
+            elif payload == b'purgeable':
+                res.attribs |= 0x20
+            elif payload == b'locked':
+                res.attribs |= 0x10
+            elif payload == b'protected':
+                res.attribs |= 0x08
+            elif payload == b'preload':
+                res.attribs |= 0x04
+
+        elif token_kind == 12:
+            res[:] = bytes.fromhex(b''.join(hex_accum).decode('ascii'))
+            yield res
+
+        allowed_token_kinds = allowed_to_follow_kind[token_kind]
+
+    # Premature EOF
+    if -1 not in allowed_token_kinds:
+        raise RezSyntaxError('File %r, unexpected end of file' % original_file)
 
 
 def make_file(from_iter, align=1):
@@ -263,12 +281,6 @@ def make_file(from_iter, align=1):
     data_offset = len(accum)
     bigdict = collections.OrderedDict() # maintain order of types, but manually order IDs
     for r in from_iter:
-        if r.type == FAKE_HEADER_RSRC_TYPE:
-            if len(r.data) > 256-16:
-                raise ValueError('Special resource length (%r) too long' % len(r.data))
-            accum[16:16+len(r.data)] = r.data
-            continue
-
         wrapped = wrap(r)
 
         while len(accum) % align:
@@ -357,43 +369,63 @@ def make_rez_code(from_iter, ascii_clean=False):
         args.append(str(resource.id).encode('ascii'))
         if resource.name is not None:
             args.append(_rez_escape(resource.name.encode('mac_roman'), singlequote=False, ascii_clean=ascii_clean))
-        args.extend(x.encode('ascii') for x in resource.attribs._for_derez())
+        args.extend(x.encode('ascii') for x in attribs_for_derez(resource.attribs))
         args = b', '.join(args)
 
         fourcc = _rez_escape(resource.type, singlequote=True, ascii_clean=ascii_clean)
 
-        if resource.type == FAKE_HEADER_RSRC_TYPE:
-            lines.append(b'#if 0')
         lines.append(b'data %s (%s) {' % (fourcc, args))
 
-        step = 16
+        # Create a template bytearray
+        numlines = (len(resource) + 15) // 16
+        overhang = numlines * 16 - len(resource)
+        fulllines = numlines - bool(overhang)
+        fl_bytes = fulllines * 78
+        guts = numlines * bytearray(b'\t$"                                                    /*                    \n')
+        del guts[-1:] # no trailing newline
 
-        star, slash, dot, space = b'*/. '
-        whole_preview = bytearray(resource.data)
-        for i in range(len(whole_preview)):
-            if not i % step: mode = False
-            thisone = whole_preview[i]
-            if mode and thisone == slash:
-                thisone = dot
-                mode = False
-            elif thisone == star:
-                mode = True
-            elif thisone >= space:
-                mode = False
-            whole_preview[i] = themap[thisone]
+        # The hex inside the $"" literals
+        hex_column = resource.hex().upper().encode('ascii')
+        if overhang:
+            hex_column += (2 * overhang) * b' '
 
-        for ofs in range(0, len(resource.data), step):
-            linedat = resource.data[ofs:ofs+step]
-            line = ' '.join(linedat[i:i+2].hex() for i in range(0, len(linedat), 2)).encode('ascii')
-            line = line.upper()
-            line = b'\t$"%s"' % line
-            line = line.ljust(55)
-            line += b'/* %s */' % whole_preview[ofs:ofs+step]
-            lines.append(line)
+        # Insert the hex column
+        for i in range(8):
+            for j in range(4):
+                guts[3+i*5+j::78] = hex_column[i*4+j::32]
+
+        # Close the hex literal
+        guts[42:fl_bytes:78] = b'"' * fulllines
+        if overhang: # slightly hacky -- searches for spaces!
+            guts[fl_bytes+guts[fl_bytes:].index(b'  ')] = ord('"')
+
+        # Prevent star-slash from ending the comment column prematurely
+        def comment_end_fixer(m):
+            start, stop = m.span()
+            stop -= 1
+            if start & -16 == stop & -16:
+                return m.group()[:-1] + b'.'
+            else:
+                return m.group()
+        comment_column = re.sub(rb'\*[\x00-\x1F]{0,14}/', comment_end_fixer, resource)
+        comment_column = comment_column.translate(themap)
+        if overhang:
+            comment_column += overhang * b' '
+
+        # Insert the comment column
+        for i in range(16):
+            guts[58+i::78] = comment_column[i::16]
+
+        # Close the comment
+        guts[75:fl_bytes:78] = b'*' * fulllines
+        guts[76:fl_bytes:78] = b'/' * fulllines
+        if overhang:
+            del guts[-overhang-2:]
+            guts.extend(b'*/')
+
+        if guts: lines.append(guts)
 
         lines.append(b'};')
-        if resource.type == FAKE_HEADER_RSRC_TYPE:
-            lines.append(b'#endif')
         lines.append(b'')
     if lines: lines.append(b'') # hack, because all posix lines end with a newline
 

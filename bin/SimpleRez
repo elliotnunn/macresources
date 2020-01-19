@@ -39,7 +39,7 @@ args = parser.parse_args()
 resources = []
 for in_path in args.rezFile:
     with open(in_path, 'rb') as f:
-        resources.extend(macresources.parse_rez_code(f.read()))
+        resources.extend(macresources.parse_rez_code(f.read(), original_file=f.name))
 
 with open(args.o, 'wb') as f:
     f.write(macresources.make_file(resources, align=args.align))

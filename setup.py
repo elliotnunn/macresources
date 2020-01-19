@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='macresources',
-    version='1.0',
+    version='1.1',
     author='Elliot Nunn',
     author_email='elliotnunn@me.com',
     description='Library for working with legacy Macintosh resource forks',

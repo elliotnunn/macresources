@@ -58,6 +58,10 @@ deprecated `Rez` and `DeRez` utilities. They convert between raw resource forks
 and Rez-style `.rdump` files. To access a raw resource fork under Mac OS X, you
 can append `/..namedfork/rsrc` to a filename.
 
+Commands implementing Apple's [undocumented resource compression scheme](http://preserve.mactech.com/articles/mactech/Vol.09/09.01/ResCompression/index.html):
+
+- `greggybits` (in Python: `from greggybits import pack, unpack`)
+
 All utilities have online help.
 
 

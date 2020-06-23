@@ -67,7 +67,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     for el in args.path:
-        from macresources.greggybits import pack, unpack
+        from macresources.greggybits import pack, unpack, WrongFormatError
 
         with open(el, 'r+b') as f:
             already_compressed = (f.read(4) == b'\xA8\x9Fer')
@@ -82,11 +82,14 @@ if __name__ == '__main__':
                     if args.debug: debug_round_trip(el, data)
                 else:
                     if args.debug: debug_round_trip(el, data)
-                    data = unpack(data)
+                    try:
+                        data = unpack(data)
+                    except WrongFormatError:
+                        continue
 
                 f.seek(0)
                 f.write(data)
                 f.truncate()
-            except ValueError:
+            except:
+                print(el)
                 raise
-                print('some kind of error')

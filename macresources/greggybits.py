@@ -21,6 +21,11 @@
 
 import struct
 
+
+class WrongFormatError(ValueError):
+    pass
+
+
 # predefined lookup table of the most frequent words
 TABLE = (
     0x0000, 0x0008, 0x4EBA, 0x206E, 0x4E75, 0x000C, 0x0004, 0x7000,
@@ -61,11 +66,16 @@ TABLE_DICT = {word: idx for (idx, word) in enumerate(TABLE)}
 
 
 def unpack(src, _calculate_slop=False):
+    if len(src) < 18: raise WrongFormatError
+
     dst = bytearray()
 
     pos = 0
     magic, hdrLen, vers, iscmp, unpackSize, _dcmp, _slop, tabSize, comprFlags = struct.unpack_from(">LHBBLHHBB", src, pos)
     pos += 18
+
+    if magic != 0xA89F6572 or hdrLen != 18 or vers != 9 or iscmp != 1 or _dcmp != 2:
+        raise WrongFormatError
 
     hasDynamicTab = comprFlags & 1
     isBitmapped   = comprFlags & 2

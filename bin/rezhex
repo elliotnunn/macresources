@@ -87,7 +87,7 @@ for base in args.base:
                     do_file(path.join(base, f))
 
     else:
-        if not is_valid_base(hqx):
+        if not is_valid_base(base):
             exit('Base names cannot have a .hqx/.idump/.rdump extension')
 
         do_file(base)

@@ -152,7 +152,7 @@ def flush_cache():
                 pass
 
             with open(the_path, 'wb') as f:
-                f.write(macresources.make_rez_code(resources))
+                f.write(macresources.make_rez_code(resources, ascii_clean=True))
 
         elif is_fork(the_path):
             # For BASE/..namedfork/rsrc to be openable by macOS, BASE must exist
